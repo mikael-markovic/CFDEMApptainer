@@ -41,7 +41,12 @@ The container bundles a complete CFD-DEM stack — OpenFOAM as the CFD solver, L
    ```
 
    producing `image.sif` in `$DATA`. The script defaults to a full-node build (`--exclusive --contiguous` on `zen4_0768`); a commented-out partial-node block (`--ntasks=190`, `--mem=16G`) is available as an alternative.
-
+## Building the image | Alternative approach
+   If MUSICA is again a pain in the (you know what i mean), when it comes to compute resources, you can also compile it on the login node by just running in the terminal. 
+   ```
+   apptainer build         --bind "${HOME}/.ssh:/root/.ssh"     ${DATA}/image.sif ${HOME}/CFDEMApptainer/image.def > build.log 2>&1
+   ```
+   The build logs can be seen in the build.log file. 
 ## Running the container
 
 The `%environment` block activates the OpenFOAM and CFDEMcoupling environments automatically on container entry, and defines a `liggghts` alias pointing at the compiled binary:
