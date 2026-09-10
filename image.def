@@ -25,9 +25,9 @@ From: ubuntu:24.04
     ########################## 
     # files to be transfered 
     ########################## 
-    $HOME/Container/OSHA1stream.H /opt/OSHA1stream.H 
-    $HOME/Container/bashrcOF /opt/bashrcOF 
-    $HOME/Container/bashrcCFDEM /opt/bashrcCFDEM
+    $HOME/CFDEMApptainer/OSHA1stream.H /opt/OSHA1stream.H 
+    $HOME/CFDEMApptainer/bashrcOF /opt/bashrcOF 
+    $HOME/CFDEMApptainer/bashrcCFDEM /opt/bashrcCFDEM
 
 # post: This is where you install software, download files, 
 # and configure settings. It runs commands inside the container during the build.
