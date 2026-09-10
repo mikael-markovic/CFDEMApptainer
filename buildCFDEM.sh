@@ -41,4 +41,4 @@
 # Forward Agent
 apptainer build     \
     --bind "${HOME}/.ssh:/root/.ssh" \
-    ${SCRATCH}/Container/imageRec.sif ${HOME}/Container/image.def
+    ${DATA}/image.sif ${HOME}/Container/image.def
