@@ -1,0 +1,163 @@
+#Bootstrap: The agent used to fetch the image (e.g., docker, library, localimage).
+#From: The specific image to start with (e.g., an official Ubuntu Linux image from Docker Hub).
+Bootstrap: docker      
+From: ubuntu:24.04
+
+# Arguments needed for compilation
+%arguments 
+    # define your username, same as in musica
+    user=mm29724
+    # Define your defaults here.
+    gitOpenFOAM=https://github.com/OpenFOAM/OpenFOAM-6.git 
+    gitThirdParty=https://github.com/OpenFOAM/ThirdParty-6.git 
+    gitLIGGGHTS=git@github.com:ParticulateFlow/LIGGGHTS.git 
+    gitCFDEMcoupling=git@github.com:ParticulateFlow/CFDEMcoupling.git 
+    gitpfmFoam=git@github.com:ParticulateFlow/pfmFOAM.git
+
+# setup: Pre-formatting or setting up specific directory structures inside $APPTAINER_ROOTFS
+# before the %files section and --bind flag "runs".
+%setup 
+    # Create the folder inside the temporary build root file system 
+    mkdir -p ${APPTAINER_ROOTFS}/root/.ssh
+
+# files (Copying Data): Copies files or code from your computer into the container.   
+%files
+    ########################## 
+    # files to be transfered 
+    ########################## 
+    $HOME/Container/OSHA1stream.H /opt/OSHA1stream.H 
+    $HOME/Container/bashrcOF /opt/bashrcOF 
+    $HOME/Container/bashrcCFDEM /opt/bashrcCFDEM
+
+# post: This is where you install software, download files, 
+# and configure settings. It runs commands inside the container during the build.
+%post -c /bin/bash
+    export DEBIAN_FRONTEND=noninteractive
+    export USER={{ user }} 
+    echo $USER
+    shopt -s expand_aliases 2>/dev/null
+
+    ########################### 
+    # Dependencies 
+    ########################### 
+    apt-get update && apt-get install -y \
+        git ssh curl wget build-essential \
+        unzip python3 python3-pip python3-venv \
+        flex bison git-core cmake zlib1g-dev \
+        libboost-system-dev libboost-thread-dev \
+        libopenmpi-dev openmpi-bin gnuplot \
+        libreadline-dev libncurses-dev libxt-dev \
+        libqt5x11extras5-dev qttools5-dev \
+        qttools5-dev-tools qtwebengine5-dev \
+        libqt5svg5-dev libqt5websockets5-dev \
+        libqt5xmlpatterns5 qtxmlpatterns5-dev-tools \
+        libqt5opengl5-dev \
+        libvtk9-dev python3-dev libgl1-mesa-dev \
+        libglu1-mesa-dev libopengl-dev bc
+
+
+    ###########################
+    # Python dependencies
+    ###########################
+    echo "installing python packages"
+    # torch first, from the CPU-only wheel index, so geomloss's own
+    # dependency resolution finds it already satisfied and never pulls
+    # the (multi-GB) CUDA build from PyPI
+    pip3 install --no-cache-dir --break-system-packages \
+        torch --index-url https://download.pytorch.org/whl/cpu
+    pip3 install --no-cache-dir --break-system-packages \
+        numpy pandas scipy matplotlib geomloss
+
+
+    ############################ 
+    # Steps regarding Git 
+    ############################ 
+    # NOTE: /root/.ssh is bind-mounted to your real $HOME/.ssh (see buildCFDEM.sh),
+    # so it already has the correct host permissions - do not chmod it here.
+    # Test your connection or clone your private repo here
+    ssh-keyscan github.com >> /root/.ssh/known_hosts
+    ssh -T git@github.com || true
+
+    ############################ 
+    # Steps regarding OpenFOAM 
+    ############################ 
+    cd /opt 
+    mkdir OpenFOAM 
+    cd OpenFOAM 
+
+    git clone {{ gitOpenFOAM }} 
+    git clone {{ gitThirdParty }} 
+
+    # replace files
+    mv -f /opt/OSHA1stream.H /opt/OpenFOAM/OpenFOAM-6/src/OpenFOAM/db/IOstreams/hashes/ 
+    mv -f /opt/bashrcOF /opt/OpenFOAM/OpenFOAM-6/etc/bashrc 
+    source /opt/OpenFOAM/OpenFOAM-6/etc/bashrc 
+
+    export WM_NCOMPPROCS=$nprocs
+
+    # compile third party
+    cd $WM_THIRD_PARTY_DIR
+    ./Allwmake -j $nprocs || echo "WARNING: ThirdParty-6 Allwmake reported errors - continuing"
+    # compile OpenFOAM
+    cd $WM_PROJECT_DIR
+    ./Allwmake -j $nprocs || echo "WARNING: OpenFOAM-6 Allwmake reported errors - continuing"
+
+    ############################ 
+    # Steps regarding LIGGGHTS 
+    ############################
+    #build liggghts 
+    cd / 
+    mkdir -p /opt/CFDEM 
+    cd /opt/CFDEM 
+    git clone --branch develop {{ gitLIGGGHTS }}
+    cd LIGGGHTS
+
+    # Ubuntu 24.04's libvtk9-dev is built with the GUISupportQt module
+    # enabled, whose link interface references the imported target
+    # Qt5::OpenGL. Nothing in LIGGGHTS's own CMakeLists.txt defines that
+    # target (no find_package(Qt5) call happens before find_package(VTK)),
+    # so CMake can't resolve it and falls back to passing it to the
+    # linker literally as "-lQt5::OpenGL", which fails.
+    # Fix: make sure the Qt5::OpenGL imported target exists before VTK's
+    # config tries to reference it, by finding it ourselves first.
+    sed -i '/find_package(VTK/I i\    find_package(Qt5 REQUIRED COMPONENTS OpenGL)' src/CMakeLists.txt
+
+    mkdir -p src-build
+    cd src-build
+    cmake ../src/
+    make -j $nprocs || echo "WARNING: LIGGGHTS build reported errors - continuing"
+
+    ############################ 
+    # Steps regarding CFDEM 
+    ############################ 
+    cd /opt/CFDEM 
+    git clone --branch feature/recurrenceLib {{ gitCFDEMcoupling }} 
+    mv -f /opt/bashrcCFDEM /opt/CFDEM/CFDEMcoupling/etc/bashrc 
+    source /opt/CFDEM/CFDEMcoupling/etc/bashrc 
+
+    # compile LIGGGHTS & CFDEM
+    cfdemCompLIG || echo "WARNING: cfdemCompLIG reported errors - continuing"
+    cfdemCompCFDEM || echo "WARNING: cfdemCompCFDEM reported errors - continuing"
+
+    ############################ 
+    # Steps regarding pfmFOAM 
+    ############################ 
+    cd /opt/OpenFOAM 
+    # git clone {{ gitpfmFoam }} 
+    git clone --branch develop {{ gitpfmFoam }} 
+    cd /opt/OpenFOAM/pfmFOAM/pfm
+    ./Allwmake -j $nprocs || echo "WARNING: pfmFOAM Allwmake reported errors (e.g. recurrenceCFD) - continuing, image will still be built"
+
+    # clean up apt cache 
+    apt-get clean 
+    rm -rf /var/lib/apt/lists/*
+
+# environment (Variables): Sets environment variables that will be active when the container runs.
+%environment -c /bin/bash
+    export USER={{ user }}
+    export WM_NCOMPPROCS=$nprocs
+    
+    alias liggghts='/opt/CFDEM/LIGGGHTS/src-build/liggghts' 
+    
+    source /opt/OpenFOAM/OpenFOAM-6/etc/bashrc
+    source /opt/CFDEM/CFDEMcoupling/etc/bashrc
