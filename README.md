@@ -42,7 +42,8 @@ The container bundles a complete CFD-DEM stack — OpenFOAM as the CFD solver, L
 
    producing `image.sif` in `$DATA`. The script defaults to a full-node build (`--exclusive --contiguous` on `zen4_0768`); a commented-out partial-node block (`--ntasks=190`, `--mem=16G`) is available as an alternative.
 ## Building the image | Alternative approach
-   If MUSICA is again a pain in the (you know what i mean), when it comes to compute resources, you can also compile it on the login node by just running in the terminal. 
+   If MUSICA is again a pain in the (you know what i mean), because compute resources are not available or queuing time is insufferable, you can also compile it on the login node by just running in the terminal. 
+   PLEASE only use 4 cores and not all the cores of the nodes. It might happen that the Login node crashes or you just cannot work on musica for a while. Basically write 4 instead of nprocs in the image.def file. 
    ```
    apptainer build         --bind "${HOME}/.ssh:/root/.ssh"     ${DATA}/image.sif ${HOME}/CFDEMApptainer/image.def > build.log 2>&1
    ```
